@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Browser</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f2f5;
+        }
+        .file-icon {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+        .folder-icon {
+            background-color: #e0e7ff;
+            color: #4f46e5;
+        }
+        .video-icon {
+            background-color: #fce7f3;
+            color: #db2777;
+        }
+        .image-icon {
+            background-color: #d1fae5;
+            color: #059669;
+        }
+        .gif-icon {
+            background-color: #fef3c7;
+            color: #d97706;
+        }
+        .default-icon {
+            background-color: #e5e7eb;
+            color: #4b5563;
+        }
+        #fileList li:hover {
+            background-color: #f9fafb;
+        }
+    </style>
+</head>
+<body class="antialiased text-gray-800">
+
+    <div class="container mx-auto p-4 sm:p-6 lg:p-8">
+        <header class="mb-6">
+            <h1 class="text-3xl font-bold text-gray-900">File Explorer</h1>
+            <p class="text-gray-600 mt-1">Browse the contents of your server.</p>
+        </header>
+
+        <div class="flex flex-wrap items-center justify-between mb-4 gap-4">
+             <div class="flex items-center gap-2">
+                <button id="backButton" onclick="goBack()" class="px-4 py-2 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition">
+                    <i class="fas fa-arrow-left"></i> Back
+                </button>
+                <div id="breadcrumbs" class="text-gray-600 text-sm sm:text-base bg-white px-4 py-2 border border-gray-200 rounded-lg shadow-sm"></div>
+            </div>
+            <div class="w-full sm:w-auto flex-grow sm:flex-grow-0">
+                <input type="text" id="searchInput" onkeyup="filterFiles()" placeholder="Search current folder..." class="w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition">
+            </div>
+        </div>
+
+        <div class="bg-white shadow-lg rounded-xl overflow-hidden">
+            <ul id="fileList" class="divide-y divide-gray-200">
+                <!-- File items will be injected here by JavaScript -->
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // Using a CORS proxy to bypass browser security restrictions.
+        const proxyPrefix = 'https://api.allorigins.win/raw?url=';
+        const targetUrl = 'http://15.235.51.60/contenido/';
+
+        let currentFiles = [];
+        let currentPath = '';
+        let pathHistory = [];
+
+        function getFileIcon(fileName) {
+            if (fileName.endsWith('/')) {
+                return '<div class="file-icon folder-icon"><i class="fas fa-folder"></i></div>';
+            }
+            const extension = fileName.split('.').pop().toLowerCase();
+            const videoExtensions = ['mp4', 'mov', 'avi', 'mkv', 'webm'];
+            const imageExtensions = ['png', 'jpg', 'jpeg', 'svg', 'webp'];
+
+            if (videoExtensions.includes(extension)) {
+                return '<div class="file-icon video-icon"><i class="fas fa-film"></i></div>';
+            }
+            if (imageExtensions.includes(extension)) {
+                return '<div class="file-icon image-icon"><i class="fas fa-image"></i></div>';
+            }
+            if (extension === 'gif') {
+                return '<div class="file-icon gif-icon"><i class="fas fa-gift"></i></div>';
+            }
+            return '<div class="file-icon default-icon"><i class="fas fa-file-alt"></i></div>';
+        }
+
+        function renderBreadcrumbs() {
+            const breadcrumbsContainer = document.getElementById('breadcrumbs');
+            let breadcrumbsHtml = `<a href="#" onclick="navigateTo('')" class="hover:underline">Root</a>`;
+            
+            let pathForLink = '';
+            currentPath.split('/').filter(p => p).forEach(part => {
+                pathForLink += part + '/';
+                breadcrumbsHtml += ` <span class="mx-1">/</span> <a href="#" onclick="navigateTo('${pathForLink}')" class="hover:underline">${decodeURIComponent(part)}</a>`;
+            });
+            breadcrumbsContainer.innerHTML = breadcrumbsHtml;
+        }
+
+        function renderFiles(fileArray) {
+            const fileList = document.getElementById('fileList');
+            fileList.innerHTML = ''; 
+            
+            if (fileArray.length === 0) {
+                fileList.innerHTML = '<li class="p-6 text-center text-gray-500">No files found.</li>';
+                return;
+            }
+
+            fileArray.forEach(file => {
+                const li = document.createElement('li');
+                li.className = 'p-4 transition-colors duration-150 ease-in-out';
+                const decodedName = decodeURIComponent(file.name);
+                const isFolder = decodedName.endsWith('/');
+
+                let itemHtml;
+                if (isFolder) {
+                    itemHtml = `
+                        <div onclick="navigateTo('${currentPath}${file.name}')" class="flex items-center space-x-4 cursor-pointer">
+                            ${getFileIcon(decodedName)}
+                            <div class="flex-1 min-w-0">
+                                <p class="text-md font-medium text-gray-900 truncate">${decodedName.replace(/\/$/, '')}</p>
+                                <p class="text-sm text-gray-500">Last Modified: ${file.lastModified}</p>
+                            </div>
+                            <div class="text-gray-400">
+                                <i class="fas fa-chevron-right"></i>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    itemHtml = `
+                        <a href="${targetUrl}${currentPath}${file.name}" class="flex items-center space-x-4" target="_blank" rel="noopener noreferrer">
+                            ${getFileIcon(decodedName)}
+                            <div class="flex-1 min-w-0">
+                                <p class="text-md font-medium text-gray-900 truncate">${decodedName}</p>
+                                <p class="text-sm text-gray-500">Last Modified: ${file.lastModified}</p>
+                            </div>
+                             <div class="text-gray-400">
+                                <i class="fas fa-external-link-alt"></i>
+                            </div>
+                        </a>
+                    `;
+                }
+                li.innerHTML = itemHtml;
+                fileList.appendChild(li);
+            });
+        }
+        
+        function filterFiles() {
+            const input = document.getElementById('searchInput');
+            const filter = input.value.toUpperCase();
+            const filteredFiles = currentFiles.filter(file => {
+                const decodedName = decodeURIComponent(file.name);
+                return decodedName.toUpperCase().includes(filter);
+            });
+            renderFiles(filteredFiles);
+        }
+
+        function updateBackButton() {
+            document.getElementById('backButton').disabled = pathHistory.length === 0;
+        }
+
+        function goBack() {
+            if (pathHistory.length > 0) {
+                const newPath = pathHistory.pop();
+                fetchAndParse(newPath, false);
+            }
+        }
+
+        function navigateTo(path) {
+            if (path === currentPath) return;
+            fetchAndParse(path, true);
+        }
+
+        async function fetchAndParse(path, addToHistory = true) {
+            const fileList = document.getElementById('fileList');
+            fileList.innerHTML = '<li class="p-6 text-center text-gray-500 animate-pulse">Loading files...</li>';
+            
+            const fullUrlToFetch = `${proxyPrefix}${encodeURIComponent(targetUrl + path)}`;
+
+            try {
+                const response = await fetch(fullUrlToFetch);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const htmlText = await response.text();
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(htmlText, 'text/html');
+                
+                const rows = doc.querySelectorAll('table tbody tr');
+                const files = [];
+
+                rows.forEach(row => {
+                    const linkTag = row.querySelector('a');
+                    const nameCell = row.cells[1];
+                    
+                    if (linkTag && nameCell) {
+                        const name = nameCell.textContent.trim();
+                        
+                        if (['Name', 'Last modified', 'Size', 'Description', 'Parent Directory'].includes(name)) {
+                            return;
+                        }
+
+                        const lastModified = row.cells[2] ? row.cells[2].textContent.trim() : 'N/A';
+                        files.push({ name: name, lastModified: lastModified });
+                    }
+                });
+                
+                if (addToHistory && path !== currentPath) {
+                    pathHistory.push(currentPath);
+                }
+                currentPath = path;
+                currentFiles = files;
+                
+                renderFiles(currentFiles);
+
+            } catch (error) {
+                console.error("Failed to fetch or parse directory:", error);
+                fileList.innerHTML = `<li class="p-6 text-center text-red-500">Error loading files. Check console for details. <br><small>This may be due to browser security (CORS) or the proxy being unavailable.</small></li>`;
+            } finally {
+                updateBackButton();
+                renderBreadcrumbs();
+                document.getElementById('searchInput').value = '';
+            }
+        }
+
+        // Initial load
+        fetchAndParse('');
+    </script>
+</body>
+</html>
